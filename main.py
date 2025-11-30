@@ -50,6 +50,8 @@ def fetch_raw_text(url, retries=3):
         soup = BeautifulSoup(response.text, 'html.parser')
         # Extract only the text from the HTML
         clean_text = soup.get_text(separator=" ", strip=True)
+        # Remove all newlines and replace with spaces, then normalize whitespace
+        clean_text = ' '.join(clean_text.split())
         return clean_text
     except RequestException as e:
         if retries > 0:
