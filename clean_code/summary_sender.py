@@ -34,7 +34,7 @@ def process_and_send_summary(news_data):
     ---
 
     ### 1. EXECUTIVE SUMMARY
-    • A concise, high-level overview (3–5 sentences).
+    • A concise, high-level overview (3 or 5 sentences).
     • Capture the core theme, market implications, and shared narrative across ALL articles.
 
     ### 2. KEY DETAILS
@@ -79,7 +79,7 @@ def process_and_send_summary(news_data):
 
     # 3. Call Local LLM (Ollama)
     try:
-        response = ollama.chat(model="qwen2.5:32b", messages=[
+        response = ollama.chat(model="qwen3:30:32b", messages=[
             {'role': 'system', 'content': master_prompt},
             {'role': 'user', 'content': user_content},
         ])

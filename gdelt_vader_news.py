@@ -7,7 +7,7 @@ import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import pymongo
 
-import clean_code.scrape_clean_html as scrape_clean_html
+import clean_code.scraper as scraper
 
 
 # --- SETUP VADER (Run this once) ---
