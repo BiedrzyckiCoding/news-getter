@@ -5,6 +5,8 @@ import ssl
 from email.message import EmailMessage
 from dotenv import load_dotenv
 
+from master_prompt import MASTER_PROMPT
+
 # Load environment variables once at the start
 load_dotenv()
 
@@ -21,51 +23,7 @@ def process_and_send_summary(news_data):
 
     # 2. Construct the Master Prompt & User Content
     # We explicitly separate the positive and negative text for the LLM
-    master_prompt = """
-    You are an expert financial news editor and analyst.
-
-    I will provide 6 raw HTML articles. These articles may contain ads, navigation bars, scripts, or other non-article elements.
-
-    Your task:
-    1. Extract ONLY the main article text. Ignore all ads, code, menus, footers, social widgets, and unrelated content.
-    2. Read all articles together and treat them as a unified information set.
-    3. Produce a clean, well-structured editorial output with the following sections:
-
-    ---
-
-    ### 1. EXECUTIVE SUMMARY
-    • A concise, high-level overview (3 or 5 sentences).
-    • Capture the core theme, market implications, and shared narrative across ALL articles.
-
-    ### 2. KEY DETAILS
-    Present bullet points summarizing:
-    • Important facts  
-    • Price movements  
-    • Dates & timelines  
-    • Key actors (companies, tokens, exchanges, analysts)  
-    • Causal drivers (macro events, liquidity shifts, regulatory changes)  
-    • Any conflicting information between articles  
-
-    Use short, sharp bullets.
-
-    ### 3. SYNTHESIS
-    Write a brief narrative (1or 2 paragraphs) that:
-    • Connects the articles into a single storyline  
-    • Highlights emerging patterns  
-    • Explains market sentiment (bullish, bearish, neutral)  
-    • Notes strategic implications for traders/investors  
-
-    ---
-
-    Requirements:
-    • Use clear, professional financial-news tone.  
-    • Do NOT copy phrases verbatim from the articles.  
-    • Do NOT include HTML or mention cleaning steps.  
-    • Focus only on information relevant to crypto markets and macro context.
-
-    Your output should be clean, cohesive, and ready for publication.
-    """
-
+    master_prompt = MASTER_PROMPT
 
     user_content = f"""
     === POSITIVE SOURCES ===
@@ -79,7 +37,7 @@ def process_and_send_summary(news_data):
 
     # 3. Call Local LLM (Ollama)
     try:
-        response = ollama.chat(model="qwen3:30:32b", messages=[
+        response = ollama.chat(model="qwen3:30b", messages=[
             {'role': 'system', 'content': master_prompt},
             {'role': 'user', 'content': user_content},
         ])
@@ -92,7 +50,7 @@ def process_and_send_summary(news_data):
     # 4. Configure Email
     email_nadawca = 'daybreak.brief@gmail.com'
     email_haslo = os.environ.get('GMAIL_APP_PASSWORD')
-    email_odbiorca = 'kubabiedrzy@gmail.com'
+    email_odbiorcy = ['kubabiedrzy@gmail.com', 'nbiedrzy@gmail.com', 'kapibied@gmail.com']
 
     if not email_haslo:
         print("Error: GMAIL_APP_PASSWORD not set in environment.")
@@ -101,7 +59,7 @@ def process_and_send_summary(news_data):
     # 5. Build Email
     msg = EmailMessage()
     msg['From'] = email_nadawca
-    msg['To'] = email_odbiorca
+    msg['To'] = ", ".join(email_odbiorcy)
     msg['Subject'] = 'Daybreak Brief: Positive vs Negative Report'
     msg.set_content(generated_summary)
 
@@ -110,7 +68,7 @@ def process_and_send_summary(news_data):
     try:
         with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=context) as smtp:
             smtp.login(email_nadawca, email_haslo)
-            smtp.sendmail(email_nadawca, email_odbiorca, msg.as_string())
-        print(f"✅ Email successfully sent to {email_odbiorca}")
+            smtp.sendmail(email_nadawca, email_odbiorcy, msg.as_string())
+        print(f"✅ Email successfully sent to: {', '.join(email_odbiorcy)}")
     except Exception as e:
         print(f"❌ Error sending email: {e}")
