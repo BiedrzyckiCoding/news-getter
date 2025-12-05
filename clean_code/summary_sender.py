@@ -50,7 +50,8 @@ def process_and_send_summary(news_data):
     # 4. Configure Email
     email_nadawca = 'daybreak.brief@gmail.com'
     email_haslo = os.environ.get('GMAIL_APP_PASSWORD')
-    email_odbiorcy = ['kubabiedrzy@gmail.com', 'nbiedrzy@gmail.com', 'kapibied@gmail.com']
+    # email_odbiorcy = ['kubabiedrzy@gmail.com', 'nbiedrzy@gmail.com', 'kapibied@gmail.com']
+    email_odbiorcy = ['kubabiedrzy@gmail.com']
 
     if not email_haslo:
         print("Error: GMAIL_APP_PASSWORD not set in environment.")

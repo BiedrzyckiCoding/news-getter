@@ -30,9 +30,27 @@ class GDELTConfig:
     """Configuration for GDELT API requests."""
     
     def __init__(self, keywords: str = None, domains: str = None, themes: str = None):
-        self.keywords = keywords or "(bitcoin OR crypto OR solana OR ethereum OR NFT OR DeFi)"
-        self.domains = domains or "(domain:reuters.com OR domain:bloomberg.com OR domain:wsj.com OR domain:cnbc.com OR domain:coindesk.com)"
-        self.themes = themes or "(theme:FINANCE OR theme:ECON_STOCKMARKET OR theme:SEC_FINANCIAL_ASSETS)"
+        # Expanded keywords to cover Crypto + Macro/Geopolitics
+        # Added: Regulation, Sanctions, SEC, Fed, CBDC, Legislation, Tariffs, Conflict
+        self.keywords = keywords or (
+            "(bitcoin OR crypto OR solana OR ethereum OR NFT OR DeFi OR "
+            "regulation OR sanctions OR SEC OR 'federal reserve' OR "
+            "legislation OR tariffs OR CBDC OR geopolitics OR conflict)"
+        )
+        
+        self.domains = domains or (
+            "(domain:reuters.com OR domain:bloomberg.com OR domain:wsj.com OR "
+            "domain:cnbc.com OR domain:coindesk.com OR domain:politico.com OR "
+            "domain:ft.com)"
+        )
+        
+        # Added GOV_REGULATION and ECON_CENTRALBANK to themes
+        self.themes = themes or (
+            "(theme:FINANCE OR theme:ECON_STOCKMARKET OR "
+            "theme:SEC_FINANCIAL_ASSETS OR theme:GOV_REGULATION OR "
+            "theme:ECON_CENTRALBANK)"
+        )
+        
         self.url = "https://api.gdeltproject.org/api/v2/doc/doc"
         self.max_records = 100
     
