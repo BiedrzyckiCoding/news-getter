@@ -28,53 +28,46 @@ class VaderSetup:
 
 
 class GDELTConfig:
-    """Configuration for GDELT API requests - Split Strategy."""
+    """Configuration for GDELT API requests - Simplified for Stability."""
     
     def __init__(self):
         self.url = "https://api.gdeltproject.org/api/v2/doc/doc"
-        self.max_records = 75  # Lowered slightly per query since we run multiple
+        self.max_records = 75
         
-        # SHARED DOMAINS (High quality finance/news)
+        # Reduced domain list to the absolute heavy hitters to lower complexity
         self.base_domains = (
             "(domain:reuters.com OR domain:bloomberg.com OR domain:wsj.com OR "
-            "domain:cnbc.com OR domain:coindesk.com OR domain:politico.com OR "
-            "domain:ft.com OR domain:economist.com)"
+            "domain:cnbc.com OR domain:coindesk.com OR domain:ft.com)"
         )
 
+        # Removed 'themes' to prevent Boolean Complexity Errors.
+        # Keywords + specific financial domains are sufficient for context.
+        
         # VECTOR 1: Crypto Assets
         self.query_crypto = {
             "keywords": "(bitcoin OR crypto OR solana OR ethereum OR NFT OR DeFi)",
-            "themes": "(theme:FINANCE OR theme:ECON_STOCKMARKET OR theme:SEC_FINANCIAL_ASSETS)"
         }
 
         # VECTOR 2: Regulation & Macro
         self.query_macro = {
-            # Note: "federal reserve" needs double quotes for GDELT
             "keywords": '(regulation OR SEC OR "federal reserve" OR CBDC OR legislation OR "interest rates")',
-            "themes": "(theme:GOV_REGULATION OR theme:ECON_CENTRALBANK OR theme:ECON_TAXATION)"
         }
 
         # VECTOR 3: Hard Geopolitics
         self.query_geo = {
             "keywords": "(sanctions OR tariffs OR geopolitics OR conflict OR war OR trade)",
-            "themes": "(theme:ARMEDCONFLICT OR theme:ECON_TRADE_DISPUTE OR theme:MANMADE_DISASTER_IMPLIED)"
         }
 
     def get_query_list(self) -> List[str]:
         """Generate a list of full query strings for separate requests."""
         queries = []
         
-        # Build Query 1
-        q1 = f"{self.query_crypto['keywords']} {self.base_domains} {self.query_crypto['themes']}"
-        queries.append(q1)
+        # Construct simplified queries: Keywords AND Domains
+        # We removed Themes to fix the "Query too complex" error
         
-        # Build Query 2
-        q2 = f"{self.query_macro['keywords']} {self.base_domains} {self.query_macro['themes']}"
-        queries.append(q2)
-
-        # Build Query 3
-        q3 = f"{self.query_geo['keywords']} {self.base_domains} {self.query_geo['themes']}"
-        queries.append(q3)
+        queries.append(f"{self.query_crypto['keywords']} {self.base_domains}")
+        queries.append(f"{self.query_macro['keywords']} {self.base_domains}")
+        queries.append(f"{self.query_geo['keywords']} {self.base_domains}")
         
         return queries
     
@@ -96,14 +89,14 @@ class GDELTFetcher:
     
     def fetch_articles(self) -> List[Dict]:
         """Fetch articles from multiple queries and merge them."""
-        print("Fetching headlines (Split Strategy)...")
+        print("Fetching headlines (Simplified Strategy)...")
         
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
         
         all_articles = []
-        seen_urls = set() # To prevent duplicates across queries
+        seen_urls = set()
 
         queries = self.config.get_query_list()
         base_params = self.config.get_base_params()
@@ -111,7 +104,6 @@ class GDELTFetcher:
         for i, query_string in enumerate(queries, 1):
             print(f"  > Running Query Vector {i}...")
             
-            # Update params with the specific query string
             current_params = base_params.copy()
             current_params["query"] = query_string
 
@@ -120,25 +112,21 @@ class GDELTFetcher:
                     self.config.url, 
                     params=current_params, 
                     headers=headers, 
-                    timeout=15
+                    timeout=20
                 )
                 response.raise_for_status()
 
-                # Safety check for empty response body
-                if not response.text.strip():
-                    print(f"    Warning: Query {i} returned empty response. Skipping.")
-                    continue
-
+                # DEBUG: If this isn't JSON, we print the RAW TEXT to see the error.
                 try:
                     data = response.json()
                 except ValueError:
-                    print(f"    Error: Query {i} response was not JSON.")
-                    # We don't exit here, we just skip this vector and try the next
+                    print(f"    !!! GDELT API ERROR (Vector {i}) !!!")
+                    print(f"    Raw Response: {response.text[:200]}") # Print first 200 chars of error
                     continue
 
                 articles = data.get("articles", [])
                 
-                # Merge and Deduplicate
+                # Deduplicate
                 new_count = 0
                 for art in articles:
                     url = art.get('url')
@@ -151,12 +139,13 @@ class GDELTFetcher:
 
             except Exception as e:
                 print(f"    Failed to fetch Query {i}: {e}")
-                # Don't kill the whole process if one vector fails, just keep going
                 continue
 
         if not all_articles:
             print("No articles found across all queries.")
-            sys.exit(1) # Kill switch if EVERYTHING fails
+            # We return an empty list here so the pipeline handles it gracefully 
+            # instead of crashing with a hard exit, allowing you to see logs.
+            return []
 
         print(f"Total unique articles fetched: {len(all_articles)}")
         return all_articles
