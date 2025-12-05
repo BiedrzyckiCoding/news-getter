@@ -6,6 +6,7 @@ import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import pymongo
 from typing import Dict, List, Tuple
+import sys
 
 from summary_sender import process_and_send_summary
 from scraper import scrape_clean_html_groups
@@ -27,41 +28,59 @@ class VaderSetup:
 
 
 class GDELTConfig:
-    """Configuration for GDELT API requests."""
+    """Configuration for GDELT API requests - Split Strategy."""
     
-    def __init__(self, keywords: str = None, domains: str = None, themes: str = None):
-        # Expanded keywords to cover Crypto + Macro/Geopolitics
-        # Added: Regulation, Sanctions, SEC, Fed, CBDC, Legislation, Tariffs, Conflict
-        self.keywords = keywords or (
-            "(bitcoin OR crypto OR solana OR ethereum OR NFT OR DeFi OR "
-            "regulation OR sanctions OR SEC OR 'federal reserve' OR "
-            "legislation OR tariffs OR CBDC OR geopolitics OR conflict)"
-        )
+    def __init__(self):
+        self.url = "https://api.gdeltproject.org/api/v2/doc/doc"
+        self.max_records = 75  # Lowered slightly per query since we run multiple
         
-        self.domains = domains or (
+        # SHARED DOMAINS (High quality finance/news)
+        self.base_domains = (
             "(domain:reuters.com OR domain:bloomberg.com OR domain:wsj.com OR "
             "domain:cnbc.com OR domain:coindesk.com OR domain:politico.com OR "
-            "domain:ft.com)"
+            "domain:ft.com OR domain:economist.com)"
         )
+
+        # VECTOR 1: Crypto Assets
+        self.query_crypto = {
+            "keywords": "(bitcoin OR crypto OR solana OR ethereum OR NFT OR DeFi)",
+            "themes": "(theme:FINANCE OR theme:ECON_STOCKMARKET OR theme:SEC_FINANCIAL_ASSETS)"
+        }
+
+        # VECTOR 2: Regulation & Macro
+        self.query_macro = {
+            # Note: "federal reserve" needs double quotes for GDELT
+            "keywords": '(regulation OR SEC OR "federal reserve" OR CBDC OR legislation OR "interest rates")',
+            "themes": "(theme:GOV_REGULATION OR theme:ECON_CENTRALBANK OR theme:ECON_TAXATION)"
+        }
+
+        # VECTOR 3: Hard Geopolitics
+        self.query_geo = {
+            "keywords": "(sanctions OR tariffs OR geopolitics OR conflict OR war OR trade)",
+            "themes": "(theme:ARMEDCONFLICT OR theme:ECON_TRADE_DISPUTE OR theme:MANMADE_DISASTER_IMPLIED)"
+        }
+
+    def get_query_list(self) -> List[str]:
+        """Generate a list of full query strings for separate requests."""
+        queries = []
         
-        # Added GOV_REGULATION and ECON_CENTRALBANK to themes
-        self.themes = themes or (
-            "(theme:FINANCE OR theme:ECON_STOCKMARKET OR "
-            "theme:SEC_FINANCIAL_ASSETS OR theme:GOV_REGULATION OR "
-            "theme:ECON_CENTRALBANK)"
-        )
+        # Build Query 1
+        q1 = f"{self.query_crypto['keywords']} {self.base_domains} {self.query_crypto['themes']}"
+        queries.append(q1)
         
-        self.url = "https://api.gdeltproject.org/api/v2/doc/doc"
-        self.max_records = 100
+        # Build Query 2
+        q2 = f"{self.query_macro['keywords']} {self.base_domains} {self.query_macro['themes']}"
+        queries.append(q2)
+
+        # Build Query 3
+        q3 = f"{self.query_geo['keywords']} {self.base_domains} {self.query_geo['themes']}"
+        queries.append(q3)
+        
+        return queries
     
-    def get_query(self) -> str:
-        """Generate full query string."""
-        return f"{self.keywords} {self.domains} {self.themes}"
-    
-    def get_params(self) -> Dict:
-        """Get API request parameters."""
+    def get_base_params(self) -> Dict:
+        """Get static API parameters."""
         return {
-            "query": self.get_query(),
             "mode": "ArtList",
             "format": "json",
             "maxrecords": self.max_records,
@@ -70,30 +89,77 @@ class GDELTConfig:
 
 
 class GDELTFetcher:
-    """Handles fetching articles from GDELT API."""
+    """Handles fetching articles from GDELT API using Split-Merge Strategy."""
     
     def __init__(self, config: GDELTConfig):
         self.config = config
     
     def fetch_articles(self) -> List[Dict]:
-        """Fetch articles from GDELT API."""
-        print("Fetching headlines...")
-        try:
-            response = requests.get(self.config.url, params=self.config.get_params())
-            response.raise_for_status()
-            data = response.json()
-            articles = data.get("articles", [])
+        """Fetch articles from multiple queries and merge them."""
+        print("Fetching headlines (Split Strategy)...")
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        
+        all_articles = []
+        seen_urls = set() # To prevent duplicates across queries
+
+        queries = self.config.get_query_list()
+        base_params = self.config.get_base_params()
+
+        for i, query_string in enumerate(queries, 1):
+            print(f"  > Running Query Vector {i}...")
             
-            if not articles:
-                print("No articles found.")
-                return []
-            
-            print(f"Fetched {len(articles)} articles.")
-            return articles
-            
-        except Exception as e:
-            print(f"Request failed: {e}")
-            return []
+            # Update params with the specific query string
+            current_params = base_params.copy()
+            current_params["query"] = query_string
+
+            try:
+                response = requests.get(
+                    self.config.url, 
+                    params=current_params, 
+                    headers=headers, 
+                    timeout=15
+                )
+                response.raise_for_status()
+
+                # Safety check for empty response body
+                if not response.text.strip():
+                    print(f"    Warning: Query {i} returned empty response. Skipping.")
+                    continue
+
+                try:
+                    data = response.json()
+                except ValueError:
+                    print(f"    Error: Query {i} response was not JSON.")
+                    # We don't exit here, we just skip this vector and try the next
+                    continue
+
+                articles = data.get("articles", [])
+                
+                # Merge and Deduplicate
+                new_count = 0
+                for art in articles:
+                    url = art.get('url')
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        all_articles.append(art)
+                        new_count += 1
+                
+                print(f"    + Found {len(articles)} articles ({new_count} unique).")
+
+            except Exception as e:
+                print(f"    Failed to fetch Query {i}: {e}")
+                # Don't kill the whole process if one vector fails, just keep going
+                continue
+
+        if not all_articles:
+            print("No articles found across all queries.")
+            sys.exit(1) # Kill switch if EVERYTHING fails
+
+        print(f"Total unique articles fetched: {len(all_articles)}")
+        return all_articles
 
 
 class SentimentAnalyzer:
@@ -213,6 +279,10 @@ class SentimentReporter:
     @staticmethod
     def print_top_sentiment(df: pd.DataFrame):
         """Print most positive and negative headlines."""
+        if df.empty:
+            print("No articles to report on.")
+            return
+
         print("\n--- Most Positive Headlines ---")
         print(df.sort_values('sentiment_score', ascending=False)[['sentiment_score', 'title']].head(3))
         
@@ -223,14 +293,14 @@ class SentimentReporter:
     def get_top_sentiment_urls(df: pd.DataFrame, top_n: int = 3) -> Dict[str, List[str]]:
         """
         Return URLs of top positive and negative news articles.
-        
-        Args:
-            df: DataFrame with sentiment analysis
-            top_n: Number of top articles to return (default: 3)
-        
-        Returns:
-            Dictionary with 'positive' and 'negative' keys containing lists of URLs
         """
+        # --- FIX STARTS HERE ---
+        # Safety check: If DF is empty or missing columns, return empty lists
+        if df.empty or 'sentiment_score' not in df.columns:
+            print("Warning: DataFrame is empty or missing sentiment data. Returning empty URLs.")
+            return {'positive': [], 'negative': []}
+        # --- FIX ENDS HERE ---
+
         top_positive = df.nlargest(top_n, 'sentiment_score')['url'].tolist()
         top_negative = df.nsmallest(top_n, 'sentiment_score')['url'].tolist()
         
@@ -242,6 +312,9 @@ class SentimentReporter:
     @staticmethod
     def save_to_csv(df: pd.DataFrame, output_dir: str = 'data'):
         """Save dataframe to CSV with timestamp."""
+        if df.empty:
+            return
+            
         os.makedirs(output_dir, exist_ok=True)
         current_time = pd.Timestamp.now(tz='Europe/Warsaw').strftime("%Y%m%d_%H%M%S_%Z")
         output_file = f"{output_dir}/gdelt_headlines_sentiment_{current_time}.csv"
