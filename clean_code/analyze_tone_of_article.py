@@ -2,6 +2,7 @@ from scraper import scrape_clean_html_list
 from tone_analyzer import analyze_tone
 from transformers import pipeline
 import numpy as np
+import tiktoken
 
 import re
 
@@ -81,18 +82,28 @@ def analyze_long_text(text, chunk_size=1024):
         "top_score": sorted_results[0][1],
         "full_breakdown": sorted_results
     }
+    
+def count_gpt4o_tokens(text: str) -> int:
+    """
+    Returns the number of GPT-4o tokens in the given string.
+    """
+    enc = tiktoken.encoding_for_model("gpt-4o")
+    tokens = enc.encode(text)
+    return len(tokens)
 
 raw_text = dict[url] 
 cleaned_text = clean_financial_text(raw_text)
 
-print("CLEANED TEXT: ", cleaned_text)
+print(count_gpt4o_tokens(cleaned_text))
 
-analysis = analyze_long_text(cleaned_text)
+# print("CLEANED TEXT: ", cleaned_text)
 
-print(f"\nFINAL RESULT (Averaged across {len(cleaned_text)//1024 + 1} chunks):")
-print(f"Top Tone: {analysis['top_label']}")
-print(f"Confidence: {analysis['top_score']:.4f}")
+# analysis = analyze_long_text(cleaned_text)
 
-print("\nFull Breakdown:")
-for label, score in analysis['full_breakdown']:
-    print(f"- {label}: {score:.4f}")
+# print(f"\nFINAL RESULT (Averaged across {len(cleaned_text)//1024 + 1} chunks):")
+# print(f"Top Tone: {analysis['top_label']}")
+# print(f"Confidence: {analysis['top_score']:.4f}")
+
+# print("\nFull Breakdown:")
+# for label, score in analysis['full_breakdown']:
+#     print(f"- {label}: {score:.4f}")
